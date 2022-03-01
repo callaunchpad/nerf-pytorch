@@ -8,6 +8,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm, trange
+from torch.utils.tensorboard import SummaryWriter
+import wandb
 
 import matplotlib.pyplot as plt
 
@@ -22,7 +24,7 @@ from load_LINEMOD import load_LINEMOD_data
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 np.random.seed(0)
 DEBUG = False
-
+wandb.init(project="stock_nerf", entity="reconstructor")
 
 def batchify(fn, chunk):
     """Constructs a version of 'fn' that applies to smaller batches.
@@ -535,7 +537,7 @@ def train():
 
     parser = config_parser()
     args = parser.parse_args()
-
+    wandb.config = vars(args)
     # Load data
     K = None
     if args.dataset_type == 'llff':
@@ -705,7 +707,7 @@ def train():
     print('VAL views are', i_val)
 
     # Summary writers
-    # writer = SummaryWriter(os.path.join(basedir, 'summaries', expname))
+    writer = SummaryWriter(os.path.join(basedir, 'summaries', expname))
     
     start = start + 1
     for i in trange(start, N_iters):
@@ -827,16 +829,19 @@ def train():
     
         if i%args.i_print==0:
             tqdm.write(f"[TRAIN] Iter: {i} Loss: {loss.item()}  PSNR: {psnr.item()}")
-        """
-            print(expname, i, psnr.numpy(), loss.numpy(), global_step.numpy())
+            # print(expname, i, psnr.numpy(), loss.numpy(), global_step.numpy())
             print('iter time {:.05f}'.format(dt))
 
-            with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_print):
-                tf.contrib.summary.scalar('loss', loss)
-                tf.contrib.summary.scalar('psnr', psnr)
-                tf.contrib.summary.histogram('tran', trans)
+            if global_step % args.i_print == 0:
+                # writer.scalar('loss', loss)
+                print("types:", type(trans))
+                wandb.log({"loss": loss, "psnr": psnr})
+                # writer.scalar('psnr', psnr)
+                # writer.histogram('tran', trans)
+                # wandb.log({"tran": wandb.plot.histogram(trans.cpu().detach().numpy(), "values")})
                 if args.N_importance > 0:
-                    tf.contrib.summary.scalar('psnr0', psnr0)
+                    # writer.scalar('psnr0', psnr0)
+                    wandb.log({"psnr0": psnr0})
 
 
             if i%args.i_img==0:
@@ -851,23 +856,30 @@ def train():
 
                 psnr = mse2psnr(img2mse(rgb, target))
 
-                with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
+                if global_step % args.i_img == 0: # with writer.record_summaries_every_n_global_steps(args.i_img):
 
-                    tf.contrib.summary.image('rgb', to8b(rgb)[tf.newaxis])
-                    tf.contrib.summary.image('disp', disp[tf.newaxis,...,tf.newaxis])
-                    tf.contrib.summary.image('acc', acc[tf.newaxis,...,tf.newaxis])
+                    # writer.image('rgb', to8b(rgb)[tf.newaxis])
+                    # writer.image('disp', disp[tf.newaxis,...,tf.newaxis])
+                    # writer.image('acc', acc[tf.newaxis,...,tf.newaxis])
 
-                    tf.contrib.summary.scalar('psnr_holdout', psnr)
-                    tf.contrib.summary.image('rgb_holdout', target[tf.newaxis])
+                    # writer.scalar('psnr_holdout', psnr)
+                    wandb.log("psnr_holdout", psnr)
+                    # writer.image('rgb_holdout', target[tf.newaxis])
 
+                    wandb.log({
+                        "rgb": wandb.Image(to8b(rgb)[tf.newaxis]), 
+                        "disp": wandb.Image(disp[tf.newaxis,...,tf.newaxis]), 
+                        "acc": wandb.Image(acc[tf.newaxis,...,tf.newaxis]), 
+                        "rgb_holdout": wandb.Image(target[tf.newaxis]),
+                    })
 
                 if args.N_importance > 0:
 
-                    with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
-                        tf.contrib.summary.image('rgb0', to8b(extras['rgb0'])[tf.newaxis])
-                        tf.contrib.summary.image('disp0', extras['disp0'][tf.newaxis,...,tf.newaxis])
-                        tf.contrib.summary.image('z_std', extras['z_std'][tf.newaxis,...,tf.newaxis])
-        """
+                    if global_step % args.i_img == 0: # writer.record_summaries_every_n_global_steps(args.i_img):
+                        pass
+                        # writer.image('rgb0', to8b(extras['rgb0'])[tf.newaxis])
+                        # writer.image('disp0', extras['disp0'][tf.newaxis,...,tf.newaxis])
+                        # writer.image('z_std', extras['z_std'][tf.newaxis,...,tf.newaxis])
 
         global_step += 1
 
